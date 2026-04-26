@@ -24,7 +24,7 @@ npm start
 
 ### Primeira vez
 Na primeira execução, o bot vai pedir o **número do WhatsApp com DDI**.
-Exemplo: `557186611701`
+Exemplo: `5511999999999`
 
 Ele vai gerar um **código de pareamento** — vá no WhatsApp → Dispositivos Conectados → Conectar Dispositivo → Inserir código.
 
