@@ -144,14 +144,10 @@ async function startBot() {
 			const isLoggedOut = lastStatus === DisconnectReason.loggedOut;
 			const shouldReconnect = !isLoggedOut;
 
-			console.log(chalk.red('❌ Conexão fechada. Motivo:', isLoggedOut ? 'Logout (401)' : `Desconexão temporária (${lastStatus})`));
-
 			if (shouldReconnect) {
 				const delay = lastStatus === 515 ? 1000 : 3000;
-				console.log(chalk.yellow(`Reconectando em ${delay/1000}s...`));
 				setTimeout(() => startBot(), delay);
 			} else {
-				console.log(chalk.red('🔐 Sessão expirada (401). Limpando para novo pareamento...'));
 				try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
 				setTimeout(() => startBot(), 2000);
 			}
@@ -193,14 +189,10 @@ process.on('SIGINT', () => {
 });
 
 const banner = `
-  _                                     ___      _ 
- | |      ___    __ _   __ _   _ __    |_ _|    / \\ 
- | |     / _ \\  / _\` | / _\` | | '_ \\    | |    / _ \\
- | |___ | (_) || (_| || (_| | | | | |   | |   / ___ \\
- |_____| \\___/  \\__, | \\__,_| |_| |_|  |___| /_/   \\_\\
-                |___/                                 
-
-    [🚀] Inicializando Sistema LOGAN-IA...
+╔══════════════════════╗
+║     LOGAN  -  IA     ║
+╚══════════════════════╝
+  🚀 Inicializando...
 `;
 
 console.clear();
