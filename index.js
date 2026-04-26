@@ -1,4 +1,35 @@
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = function(warning, ...args) {
+    if (typeof warning === 'string' && warning.includes('NODE_TLS_REJECT_UNAUTHORIZED')) return;
+    if (warning && warning.name === 'Warning' && warning.message && warning.message.includes('NODE_TLS_REJECT_UNAUTHORIZED')) return;
+    return originalEmitWarning.call(process, warning, ...args);
+};
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+// Silenciar mensagens de erro internas do Baileys (decrypt/session)
+const _origConsoleError = console.error;
+const _origConsoleWarn = console.warn;
+const silencedPatterns = [
+    'Failed to decrypt',
+    'MessageCounterError',
+    'Key used already or never filled',
+    'decryptWithSessions',
+    'doDecryptWhisperMessage',
+    'session_cipher',
+    'queue_job',
+];
+function shouldSilence(args) {
+    const text = args.map(a => (typeof a === 'string' ? a : (a?.stack || a?.message || String(a)))).join(' ');
+    return silencedPatterns.some(p => text.includes(p));
+}
+console.error = function(...args) {
+    if (shouldSilence(args)) return;
+    _origConsoleError.apply(console, args);
+};
+console.warn = function(...args) {
+    if (shouldSilence(args)) return;
+    _origConsoleWarn.apply(console, args);
+};
 const {
 	makeWASocket,
 	fetchLatestBaileysVersion,
@@ -6,9 +37,9 @@ const {
 	useMultiFileAuthState,
 	makeCacheableSignalKeyStore,
 	proto,
-	Browsers,
 } = require("@whiskeysockets/baileys");
 const fs = require("fs");
+const path = require("path");
 
 if (!fs.existsSync('./key.json')) {
 	fs.writeFileSync('./key.json', JSON.stringify({ keyopenai: "gsk_" + "XMwijoZTWy4BnoQXflouWGdyb3FYj9zhRk96Fu75qYoKqShehfVC" }, null, 2));
@@ -31,8 +62,7 @@ const question = (text) => {
 	});
 };
 
-const Logger = { level: "error" };
-const logger = Pino({ ...Logger });
+const logger = Pino({ level: "silent" });
 
 const msgCache = new Map();
 const store = {
@@ -54,118 +84,129 @@ const color = (text, color) => {
   return !color ? chalk.green(text) : chalk.keyword(color)(text);
 };
 
-// Controle de reconexão para evitar loop infinito
-let isConnecting = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+// Caminho ABSOLUTO da sessão (evita problema de diretório)
+const SESSION_DIR = path.join(__dirname, "yusril");
 
-async function connectToWhatsApp() {
-	// Evitar múltiplas conexões simultâneas
-	if (isConnecting) {
-		console.log(chalk.yellow("Já existe uma conexão em andamento, ignorando..."));
-		return;
+// IDs de mensagens enviadas pelo bot
+const sentMessageIds = new Set();
+
+async function startBot() {
+	const hasSession = fs.existsSync(SESSION_DIR) && fs.readdirSync(SESSION_DIR).length > 0;
+
+	const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+	const { version } = await fetchLatestBaileysVersion();
+
+	const sock = makeWASocket({
+		version,
+		logger,
+		printQRInTerminal: false,
+		auth: {
+			creds: state.creds,
+			keys: makeCacheableSignalKeyStore(state.keys, logger),
+		},
+		generateHighQualityLinkPreview: true,
+		getMessage: async (key) => {
+			const msg = await store.loadMessage(key.remoteJid, key.id);
+			return msg?.message || undefined;
+		}
+	});
+
+	// Interceptar sendMessage para rastrear IDs
+	const _origSend = sock.sendMessage.bind(sock);
+	sock.sendMessage = async (jid, message, options) => {
+		const res = await _origSend(jid, message, options);
+		if (res?.key?.id) {
+			sentMessageIds.add(res.key.id);
+			setTimeout(() => sentMessageIds.delete(res.key.id), 60000);
+		}
+		return res;
+	};
+
+	// Se não tiver credenciais registradas, pedir código de pareamento
+	if (!sock.authState.creds.registered) {
+		setTimeout(async () => {
+			const phoneNumber = await question('Digite o numero do WhatsApp com DDI (ex: 557199999999): ');
+			const code = await sock.requestPairingCode(phoneNumber.trim());
+			console.log(chalk.green(`CÓDIGO DE PAREAMENTO: ${code}`));
+		}, 3000);
 	}
-	isConnecting = true;
 
-	try {
-		const { state, saveCreds } = await useMultiFileAuthState("yusril");
-		const { version } = await fetchLatestBaileysVersion();
-		
-		const sock = makeWASocket({
-			auth: {
-				creds: state.creds,
-				keys: makeCacheableSignalKeyStore(state.keys, logger),
-			},
-			version: version,
-			logger: logger,
-			printQRInTerminal: false,
-			markOnlineOnConnect: true,
-			syncFullHistory: false,
-			generateHighQualityLinkPreview: true,
-			browser: Browsers.macOS('Chrome'),
-			getMessage
-		});
+	store?.bind(sock.ev);
 
-		if (!sock.authState.creds.registered) {
-			setTimeout(async () => {
-				const phoneNumber = await question('Digite o numero do WhatsApp com DDI (ex: 557199999999): ');
-				const code = await sock.requestPairingCode(phoneNumber.trim());
-				console.log(chalk.green(`CÓDIGO DE PAREAMENTO: ${code}`));
-			}, 3000);
+	sock.ev.on('creds.update', saveCreds);
+
+	// Atualização de conexão
+	sock.ev.on('connection.update', async (update) => {
+		const { connection, lastDisconnect } = update;
+
+		if (connection === 'close') {
+			const lastStatus = lastDisconnect?.error?.output?.statusCode ?? lastDisconnect?.error?.status;
+			const isLoggedOut = lastStatus === DisconnectReason.loggedOut;
+			const shouldReconnect = !isLoggedOut;
+
+			console.log(chalk.red('❌ Conexão fechada. Motivo:', isLoggedOut ? 'Logout (401)' : `Desconexão temporária (${lastStatus})`));
+
+			if (shouldReconnect) {
+				const delay = lastStatus === 515 ? 1000 : 3000;
+				console.log(chalk.yellow(`Reconectando em ${delay/1000}s...`));
+				setTimeout(() => startBot(), delay);
+			} else {
+				console.log(chalk.red('🔐 Sessão expirada (401). Limpando para novo pareamento...'));
+				try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
+				setTimeout(() => startBot(), 2000);
+			}
 		}
 
-		store?.bind(sock.ev);
-
-		sock.ev.process(async (ev) => {
-			if (ev["creds.update"]) {
-				await saveCreds();
-			}
-			if (ev["connection.update"]) {
-				const update = ev["connection.update"];
-				const { connection, lastDisconnect } = update;
-
-				if (connection === "close") {
-					isConnecting = false;
-					const statusCode = lastDisconnect?.error?.output?.statusCode;
-					const payload = lastDisconnect?.error?.output?.payload;
-					
-					console.log(chalk.red(`Conexão fechada. Status: ${statusCode}`));
-					
-					// Se foi deslogado, não reconectar
-					if (statusCode === DisconnectReason.loggedOut) {
-						console.log(chalk.red("Bot foi deslogado. Delete a pasta 'yusril' e reinicie."));
-						return;
-					}
-					
-					// Se foi "replaced" (outra instância), não reconectar pra não criar loop
-					if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
-						console.log(chalk.red("Conexão substituída por outra instância. Encerrando..."));
-						console.log(chalk.yellow("Certifique-se de que só UMA instância do bot está rodando."));
-						return;
-					}
-
-					// Reconectar com limite de tentativas e delay
-					reconnectAttempts++;
-					if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-						console.log(chalk.red(`Máximo de ${MAX_RECONNECT_ATTEMPTS} tentativas atingido. Reinicie manualmente.`));
-						return;
-					}
-
-					const delay = Math.min(reconnectAttempts * 3000, 15000);
-					console.log(chalk.yellow(`Reconectando em ${delay/1000}s... (tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`));
-					setTimeout(() => connectToWhatsApp(), delay);
-
-				} else if (connection === "open") {
-					isConnecting = false;
-					reconnectAttempts = 0; // Reset no sucesso
-					console.log(color("✅ Bot conectado com sucesso!", "green"));
-				}
-			}
-			
-			const upsert = ev["messages.upsert"];
-			if (upsert) {
-				if (upsert.type !== "notify") return;
-				const message = Messages(upsert, sock);
-				if (!message || message.sender === "status@broadcast") return;
-				require("./sansekai.js")(upsert, sock, store, message);
-			}
-		});
-
-		async function getMessage(key) {
-			if (store) {
-				const msg = await store.loadMessage(key.remoteJid, key.id);
-				return msg?.message || undefined;
-			}
-			return proto.Message.fromObject({});
+		if (connection === 'open') {
+			console.log(color("✅ Bot conectado com sucesso!", "green"));
 		}
-		return sock;
-	} catch (err) {
-		isConnecting = false;
-		console.log(chalk.red("Erro ao conectar:"), err);
-		const delay = Math.min((reconnectAttempts + 1) * 3000, 15000);
-		console.log(chalk.yellow(`Tentando novamente em ${delay/1000}s...`));
-		setTimeout(() => connectToWhatsApp(), delay);
-	}
+	});
+
+	// Novas mensagens
+	sock.ev.on('messages.upsert', ({ messages, type }) => {
+		if (type !== 'notify') return;
+
+		for (const msg of messages) {
+			if (msg.key.remoteJid === 'status@broadcast') continue;
+
+			if (msg.key.fromMe) {
+				if (msg.key.id && sentMessageIds.has(msg.key.id)) continue;
+			}
+
+			const message = Messages({ messages: [msg], type }, sock);
+			if (!message) continue;
+			require("./sansekai.js")({ messages: [msg], type }, sock, store, message);
+		}
+	});
 }
 
-connectToWhatsApp();
+process.on('uncaughtException', (error) => {
+	console.error('❌ Erro não capturado:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+	console.error('❌ Promise rejeitada:', error);
+});
+
+process.on('SIGINT', () => {
+	process.exit(0);
+});
+
+const banner = `
+  _                                     ___      _ 
+ | |      ___    __ _   __ _   _ __    |_ _|    / \\ 
+ | |     / _ \\  / _\` | / _\` | | '_ \\    | |    / _ \\
+ | |___ | (_) || (_| || (_| | | | | |   | |   / ___ \\
+ |_____| \\___/  \\__, | \\__,_| |_| |_|  |___| /_/   \\_\\
+                |___/                                 
+
+    [🚀] Inicializando Sistema LOGAN-IA...
+`;
+
+console.clear();
+console.log(chalk.cyan(banner));
+
+startBot().catch(error => {
+	console.error('❌ Erro ao iniciar bot:', error);
+	process.exit(1);
+});

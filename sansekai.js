@@ -5,7 +5,7 @@ const groq = new Groq({ apiKey: setting.keyopenai });
 const path = require("path");
 
 // ══════════════════════════════════════════
-//  ARQUITETURA MODULAR — ESTILO ISA
+//        ARQUITETURA MODULAR
 // ══════════════════════════════════════════
 
 // Diretórios
@@ -18,6 +18,14 @@ if (!fs.existsSync(LEARNINGS_DIR)) fs.mkdirSync(LEARNINGS_DIR);
 const SYSTEM_FILE = path.join(__dirname, "SYSTEM.md");
 const AUTORIZADOS_FILE = path.join(__dirname, "autorizados.json");
 const NOTAS_FILE = path.join(__dirname, "notas.json");
+const SETTINGS_FILE = path.join(__dirname, "settings.json");
+
+// Carregar settings
+let settings = { isPublic: true };
+if (fs.existsSync(SETTINGS_FILE)) {
+    try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch (e) { }
+}
+const salvarSettings = () => fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 
 // Carregar autorizados
 let autorizados = [];
@@ -36,10 +44,7 @@ const salvarNotas = () => fs.writeFileSync(NOTAS_FILE, JSON.stringify(notas, nul
 // Donos (Luan + Davy + Novos LIDs)
 const OWNERS = ["557186611701", "5571986611701", "559491855060", "5594991855060", "236949688311960", "101679106150440"];
 
-// ══════════════════════════════════════════
-//  SISTEMA DE DEBOUNCE — ESTILO ISA
-//  Agrupa mensagens rápidas antes de responder
-// ══════════════════════════════════════════
+
 const DEBOUNCE_MS = 1500;
 const pendingMessages = new Map(); // chatId -> { messages: [], timer, message }
 
@@ -69,9 +74,7 @@ function saveMemory(chatId, history) {
     fs.writeFileSync(file, JSON.stringify(history, null, 2));
 }
 
-// ══════════════════════════════════════════
-//  LOGGING — ESTILO ISA (learnings/errors)
-// ══════════════════════════════════════════
+
 function logError(context, error) {
     const logFile = path.join(LEARNINGS_DIR, "errors.log");
     const timestamp = new Date().toISOString();
@@ -95,7 +98,7 @@ async function callAI(chatId, pushname, input) {
 
     // Montar contexto
     let messages = [{ role: 'system', content: systemPrompt }];
-    
+
     // Adicionar notas/contexto persistente se existir para este chat
     const chatNotas = notas[chatId];
     if (chatNotas && chatNotas.length > 0) {
@@ -104,7 +107,7 @@ async function callAI(chatId, pushname, input) {
             content: `[Notas sobre este chat]: ${chatNotas.join(' | ')}`
         });
     }
-    
+
     messages = messages.concat(history);
     messages.push({ role: 'user', content: `[De: ${pushname}] ${input}` });
 
@@ -143,42 +146,54 @@ async function callAI(chatId, pushname, input) {
 // ══════════════════════════════════════════
 module.exports = sansekai = async (upsert, sock, store, message) => {
     try {
-        // Ignorar mensagens do próprio bot
-        if (message.key?.fromMe) return;
-        
         // Ignorar se não tem mensagem (notificações, reações, etc)
         if (!message.message) return;
 
         let budy = (typeof message.text == 'string' ? message.text : '');
         if (!budy) return;
-        
+
+        // Se a mensagem contiver a marca d'água invisível, foi enviada pelo próprio bot. Ignorar para evitar loop.
+        if (budy.includes('\u200B')) return;
+
         var prefix = /^[\\/!#.]/gi.test(budy) ? budy.match(/^[\\/!#.]/gi) : "/";
         const isCmd = budy.startsWith(prefix);
-        const command = isCmd ? budy.replace(prefix,"").trim().split(/ +/).shift().toLowerCase() : "";
+        const command = isCmd ? budy.replace(prefix, "").trim().split(/ +/).shift().toLowerCase() : "";
         const args = budy.trim().split(/ +/).slice(1);
         const pushname = message.pushName || "Usuário";
         const from = message.chat;
-        
+
         // Extrair número real do remetente (usando o sender já normalizado pelo lib/messages.js)
         const rawSender = message.sender || message.key?.participant || message.key?.remoteJid || "";
         const sender = rawSender.split('@')[0];
-        
-        // Verificação de autorização flexível (lida com LID)
+
+        // Verificação de dono (só pra comandos admin)
         const isOwner = OWNERS.some(num => sender.includes(num) || num.includes(sender));
-        const isAutorizado = isOwner || autorizados.some(num => sender.includes(num) || num.includes(sender));
-        
-        console.log(chalk.cyan(`→ [${pushname}] (${sender}) [Auth: ${isAutorizado}] ${budy.substring(0, 60)}`));
-        if (!isAutorizado) {
-            console.log(chalk.red(`   [DEBUG] Bloqueado. rawSender: ${rawSender}, sender: ${sender}`));
-        }
-        
+        const isAutorizado = settings.isPublic || isOwner || autorizados.includes(sender);
+
+        const shortText = budy.length > 60 ? budy.substring(0, 60) + "..." : budy;
+        console.log(`${chalk.yellow('[💬]')} ${chalk.cyan(pushname)} ${chalk.gray(`(${sender})`)}: ${chalk.white(shortText)}`);
+
         let text = args.join(" ");
 
         // ═══════════════════════════════
         //  COMANDOS (prefixo /)
         // ═══════════════════════════════
         if (isCmd) {
-            switch(command) {
+            switch (command) {
+                case "publico":
+                    if (!isOwner) return message.reply('negado.');
+                    if (text === "on") {
+                        settings.isPublic = true;
+                        salvarSettings();
+                        message.reply('Modo p�blico ATIVADO. Respondendo a qualquer pessoa.');
+                    } else if (text === "off") {
+                        settings.isPublic = false;
+                        salvarSettings();
+                        message.reply('Modo p�blico DESATIVADO. Somente autorizados.');
+                    } else {
+                        message.reply('Uso: /publico on ou /publico off (Atual: ' + (settings.isPublic ? 'ATIVADO' : 'DESATIVADO') + ')');
+                    }
+                    break;
                 case "autorizar":
                     if (!isOwner) return message.reply('negado. só o luan manda aqui');
                     if (!text) return message.reply('uso: /autorizar 5511...');
@@ -221,7 +236,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                     if (!isOwner) return message.reply('negado');
                     const chatNotas = notas[from] || [];
                     if (chatNotas.length === 0) return message.reply('nenhuma nota nesse chat');
-                    message.reply(`notas desse chat:\n${chatNotas.map((n, i) => `${i+1}. ${n}`).join('\n')}`);
+                    message.reply(`notas desse chat:\n${chatNotas.map((n, i) => `${i + 1}. ${n}`).join('\n')}`);
                     break;
 
                 case "delnota":
@@ -295,7 +310,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                             text: mentionText,
                             mentions: mentions
                         }, { quoted: message });
-                    } catch(e) {
+                    } catch (e) {
                         logError("totag", e);
                         message.reply('não consegui marcar todo mundo');
                     }
@@ -337,7 +352,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
         //  Espera 1.5s após última msg antes de responder
         // ═══════════════════════════════
         const pendingKey = `${from}:${sender}`;
-        
+
         if (pendingMessages.has(pendingKey)) {
             const pending = pendingMessages.get(pendingKey);
             pending.messages.push(textoLimpo);
@@ -358,26 +373,26 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
 
             // Juntar todas as mensagens acumuladas
             const textoFinal = pending.messages.join('\n');
-            
+
             try {
-                // React com emoji de "pensando" (estilo ISA)
+                // React com emoji de "pensando" 
                 try {
                     await sock.sendMessage(from, {
                         react: { text: '🧠', key: pending.msgRef.key }
                     });
-                } catch {}
+                } catch { }
 
                 const resposta = await callAI(from, pending.pushname, textoFinal);
-                await sock.sendMessage(from, { text: resposta }, { quoted: pending.msgRef });
+                await sock.sendMessage(from, { text: resposta + '\u200B' }, { quoted: pending.msgRef });
 
                 // Remover react
                 try {
                     await sock.sendMessage(from, {
                         react: { text: '', key: pending.msgRef.key }
                     });
-                } catch {}
+                } catch { }
 
-            } catch(e) {
+            } catch (e) {
                 logError(`AI response (${from})`, e);
                 // Tentar com modelo fallback
                 try {
@@ -391,8 +406,8 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                         max_tokens: 256
                     });
                     const fallbackTexto = fallbackRes.choices[0].message.content;
-                    await sock.sendMessage(from, { text: fallbackTexto }, { quoted: pending.msgRef });
-                } catch(e2) {
+                    await sock.sendMessage(from, { text: fallbackTexto + '\u200B' }, { quoted: pending.msgRef });
+                } catch (e2) {
                     logError("AI fallback", e2);
                 }
             }
@@ -402,3 +417,4 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
         logError("handler geral", err);
     }
 };
+
