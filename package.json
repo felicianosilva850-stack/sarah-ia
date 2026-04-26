@@ -1,53 +1,31 @@
 {
-  "name": "Wa-OpenAI",
-  "version": "2.1.0",
-  "description": "WhatsApp Bot OpenAI ChatGPT Using Lib Baileys Multi Device",
+  "name": "logan-ia",
+  "version": "1.0.0",
+  "description": "Logan - Bot de WhatsApp com IA",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "keywords": [
-    "termux",
-    "whatsapp-openai",
-    "whatsapp-openai",
     "whatsapp-bot",
     "whatsapp-baileys",
-    "baileys-md",
-    "bot-wa",
-    "bot-md",
-    "whatsapp-multi-device"
+    "bot-ia",
+    "groq"
   ],
-  "base": "https://github.com/DikaArdnt/Hisoka-Morou",
-  "author": "Yusril",
+  "author": "Luan",
   "license": "MIT",
   "dependencies": {
     "@hapi/boom": "^10.0.0",
     "@whiskeysockets/baileys": "^6.7.16",
-    "awesome-phonenumber": "^2.64.0",
-    "axios": "^1.3.4",
     "chalk": "^4.1.2",
-    "crypto": "^1.0.1",
-    "figlet": "^1.5.2",
-    "fs": "0.0.1-security",
     "groq-sdk": "^1.1.2",
-    "lodash": "^4.17.21",
     "moment-timezone": "^0.5.46",
-    "openai": "^4.20.1",
-    "pino": "^7.0.5",
-    "qrcode-terminal": "^0.12.0",
-    "util": "^0.12.4"
-  },
-  "directories": {
-    "lib": "lib",
-    "src": "src"
+    "pino": "^7.0.5"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Sansekai/Wa-OpenAI.git"
+    "url": "git+https://github.com/davyfll472-arch/Logan-ia.git"
   },
-  "bugs": {
-    "url": "https://github.com/Sansekai/Wa-OpenAI/issues"
-  },
-  "homepage": "https://github.com/Sansekai/Wa-OpenAI#readme"
+  "homepage": "https://github.com/davyfll472-arch/Logan-ia#readme"
 }

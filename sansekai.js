@@ -33,6 +33,13 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                 chatHistory[from].splice(1,2);
             }
 
+            // limpa conversas antigas (mais de 50 chats salvos)
+            const chats = Object.keys(chatHistory);
+            if(chats.length > 50){
+                const oldest = chats.slice(0, chats.length - 50);
+                oldest.forEach(k => delete chatHistory[k]);
+            }
+
             const res = await groq.chat.completions.create({
                 messages:chatHistory[from],
                 model:'llama-3.3-70b-versatile'
@@ -65,7 +72,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                     }
                     break;
                 case "sc":
-                    message.reply("GitHub: Sansekai/Wa-OpenAI");
+                    message.reply("GitHub: davyfll472-arch/Logan-ia");
                     break;
             }
         }else if(budy){

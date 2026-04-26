@@ -13,7 +13,7 @@ const Pino = require("pino");
 const chalk = require("chalk");
 const moment = require("moment-timezone");
 const readline = require("readline");
-moment.tz.setDefault("Asia/Jakarta").locale("id");
+moment.tz.setDefault("America/Sao_Paulo").locale("pt-br");
 const { Messages } = require("./lib/messages.js");
 
 const question = (text) => {
@@ -30,12 +30,17 @@ const Logger = { level: "error" };
 const logger = Pino({ ...Logger });
 
 const msgCache = new Map();
+const MAX_CACHE = 500;
 const store = {
 	bind(ev) {
 		ev.on("messages.upsert", ({ messages }) => {
 			for (const msg of messages) {
 				if (msg.key?.remoteJid && msg.key?.id) {
 					msgCache.set(`${msg.key.remoteJid}:${msg.key.id}`, msg);
+					if (msgCache.size > MAX_CACHE) {
+						const first = msgCache.keys().next().value;
+						msgCache.delete(first);
+					}
 				}
 			}
 		});
@@ -50,7 +55,7 @@ const color = (text, color) => {
 };
 
 async function connectToWhatsApp() {
-	const { state, saveCreds } = await useMultiFileAuthState("yusril");
+	const { state, saveCreds } = await useMultiFileAuthState("session");
 	const { version } = await fetchLatestBaileysVersion();
 	
 	const sock = makeWASocket({
