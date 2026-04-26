@@ -13,10 +13,10 @@ pkg install nodejs git -y
 # 2. Clonar o projeto (ou copiar via USB/adb)
 # Se já tem a pasta, pule este passo
 cd /data/data/com.termux/files/home
-# copie a pasta do bot pra cá
+git clone https://github.com/davyfll472-arch/Logan-ia.git
 
 # 3. Entrar na pasta e instalar
-cd "bot do luan"
+cd Logan-ia
 npm install
 
 # 4. Rodar
@@ -47,7 +47,7 @@ node index.js
 ## 🧠 Arquitetura
 
 ```
-bot do luan/
+Logan-ia/
 ├── index.js          # Conexão WhatsApp (Baileys)
 ├── sansekai.js       # Handler de mensagens + IA
 ├── SYSTEM.md         # Identidade/alma do Logan
