@@ -4,11 +4,10 @@
 
 ## Sobre
 
-Logan é um bot inteligente para WhatsApp com recursos de IA integrados, incluindo geração de texto e imagens.
+Logan é um bot inteligente para WhatsApp com IA integrada.
 
 ### Comandos
-- `/ai` - Conversar com a IA (texto)
-- `/img` - Gerar imagens com IA
+- `/ai` - Conversar com a IA
 
 ## Configuração
 
