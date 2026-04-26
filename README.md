@@ -59,6 +59,17 @@ npm start
 # Pra voltar: tmux attach -t logan
 ```
 
+## 🔄 Como Atualizar o Bot
+
+Quando sair uma versão nova no GitHub, você não precisa apagar nada, é só puxar a atualização:
+
+```bash
+cd /data/data/com.termux/files/home/Logan-ia
+git pull
+npm install
+npm start
+```
+
 ## 🧠 Arquitetura
 
 ```
