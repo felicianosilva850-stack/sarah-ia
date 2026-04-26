@@ -10,8 +10,7 @@ Arquitetura inspirada na ISA — identidade forte, memória persistente, debounc
 pkg update && pkg upgrade -y
 pkg install nodejs git -y
 
-# 2. Clonar o projeto (ou copiar via USB/adb)
-# Se já tem a pasta, pule este passo
+# 2. Clonar o projeto
 cd /data/data/com.termux/files/home
 git clone https://github.com/davyfll472-arch/Logan-ia.git
 
