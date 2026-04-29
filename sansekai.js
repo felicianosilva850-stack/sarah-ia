@@ -443,12 +443,12 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
             // Em grupos: só responde se chamar pelo nome ou marcar
             if (startsWithSarah || isMentioned) {
                 shouldReply = true;
-                if (startsWithSarah) textoLimpo = budy.replace(/^sarah\s*/ii, '').trim() || "oi";
+                if (startsWithSarah) textoLimpo = budy.replace(/^sarah\s*/i, '').trim() || "oi";
             }
         } else {
             // Em DM: responde sempre
             shouldReply = true;
-            if (startsWithSarah) textoLimpo = budy.replace(/^sarah\s*/ii, '').trim() || "oi";
+            if (startsWithSarah) textoLimpo = budy.replace(/^sarah\s*/i, '').trim() || "oi";
         }
 
         if (!shouldReply || textoLimpo.length === 0) return;
