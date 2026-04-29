@@ -113,14 +113,21 @@ Logan-ia/
 
 ## 🔑 Configuração
 
-Renomeie o arquivo `key.example.json` para `key.json` e coloque sua API key do Groq:
+Renomeie o arquivo `key.example.json` para `key.json` e adicione suas chaves da API da Groq.
+
+O sistema agora suporta **rotação automática de chaves (Anti-Ban/Rate Limit)**! Se uma chave estourar o limite de uso (erro 429) ou falhar, o bot pula para a próxima da fila automaticamente sem perder a mensagem.
+
 ```json
 {
-  "keyopenai": "gsk_SUA_CHAVE_GROQ_AQUI"
+  "keys": [
+    "gsk_SUA_CHAVE_1",
+    "gsk_SUA_CHAVE_2",
+    "gsk_SUA_CHAVE_3"
+  ]
 }
 ```
 
-Pegue sua chave grátis em: https://console.groq.com/keys
+Pegue suas chaves grátis em: https://console.groq.com/keys
 
 ## 📝 Editando a personalidade
 
