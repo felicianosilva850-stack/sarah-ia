@@ -192,7 +192,7 @@ process.on('SIGINT', () => {
 
 const banner = `
 ╔══════════════════════╗
-║     LOGAN  -  IA     ║
+║     SARAH  -  IA     ║
 ╚══════════════════════╝
   🚀 Inicializando...
 `;

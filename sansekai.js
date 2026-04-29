@@ -362,7 +362,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                         catch { return acc; }
                     }, 0);
                     message.reply(
-                        `logan status:\n` +
+                        `sarah status:\n` +
                         `chats ativos: ${memFiles.length}\n` +
                         `mensagens na memória: ${totalMem}\n` +
                         `autorizados: ${autorizados.length}\n` +
@@ -390,7 +390,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                 case "help":
                 case "menu":
                     message.reply(
-                        `logan ai — comandos:\n\n` +
+                        `sarah ai — comandos:\n\n` +
                         `/autorizar [num] — liberar número\n` +
                         `/remover [num] — revogar acesso\n` +
                         `/limpar — zerar memória do chat\n` +
@@ -434,21 +434,21 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
         const isGroup = from.endsWith('@g.us');
         const myNumber = sock.user.id.split(':')[0];
         const isMentioned = message.mentionMe || budy.toLowerCase().includes('@' + myNumber);
-        const startsWithLogan = budy.toLowerCase().startsWith('logan');
+        const startsWithSarah = budy.toLowerCase().startsWith('sarah');
 
         let shouldReply = false;
         let textoLimpo = budy;
 
         if (isGroup) {
             // Em grupos: só responde se chamar pelo nome ou marcar
-            if (startsWithLogan || isMentioned) {
+            if (startsWithSarah || isMentioned) {
                 shouldReply = true;
-                if (startsWithLogan) textoLimpo = budy.replace(/^logan\s*/i, '').trim() || "oi";
+                if (startsWithSarah) textoLimpo = budy.replace(/^sarah\s*/ii, '').trim() || "oi";
             }
         } else {
             // Em DM: responde sempre
             shouldReply = true;
-            if (startsWithLogan) textoLimpo = budy.replace(/^logan\s*/i, '').trim() || "oi";
+            if (startsWithSarah) textoLimpo = budy.replace(/^sarah\s*/ii, '').trim() || "oi";
         }
 
         if (!shouldReply || textoLimpo.length === 0) return;
@@ -504,7 +504,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                 try {
                     const fallbackRes = await groq.chat.completions.create({
                         messages: [
-                            { role: 'system', content: 'você é o logan, responda brevemente e naturalmente em português' },
+                            { role: 'system', content: 'você é a sarah, responda brevemente e naturalmente em português' },
                             { role: 'user', content: textoFinal }
                         ],
                         model: 'llama-3.1-8b-instant',

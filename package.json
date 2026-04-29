@@ -1,7 +1,7 @@
 {
-  "name": "logan-ia",
+  "name": "sarah-ia",
   "version": "1.0.0",
-  "description": "Logan - Bot de WhatsApp com IA",
+  "description": "Sarah - Bot de WhatsApp com IA",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
