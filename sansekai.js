@@ -2,7 +2,45 @@ const { BufferJSON, WA_DEFAULT_EPHEMERAL, generateWAMessageFromContent, proto, g
 const fs = require("fs"), util = require("util"), chalk = require("chalk"), Groq = require("groq-sdk");
 const { exec } = require("child_process");
 let setting = require("./key.json");
-const groq = new Groq({ apiKey: setting.keyopenai });
+const apiKeyManager = require("./apiKeyManager");
+let currentApiKey = apiKeyManager.getKey() || setting.keyopenai;
+let groq = new Groq({ apiKey: currentApiKey || "placeholder" });
+
+async function executeGroqWithRotation(payload) {
+    let attempts = 0;
+    const numKeys = apiKeyManager.listKeys().length;
+    const maxAttempts = numKeys > 0 ? numKeys : 1;
+    
+    while (attempts <= maxAttempts) {
+        try {
+            return await groq.chat.completions.create(payload);
+        } catch (e) {
+            const status = e.status || (e.response && e.response.status);
+            
+            if (status === 401 || String(e.message).includes('401')) {
+                console.log(chalk.red(`[ERRO] Chave inválida (401). Removendo: ...${(currentApiKey||"").slice(-4)}`));
+                apiKeyManager.markFailure(currentApiKey);
+                currentApiKey = apiKeyManager.getKey();
+                if (!currentApiKey) throw new Error("Sem chaves válidas no sistema.");
+                groq = new Groq({ apiKey: currentApiKey });
+                attempts++;
+                continue;
+            } 
+            else if (status === 429 || String(e.message).includes('429') || String(e.message).includes('Rate limit')) {
+                console.log(chalk.yellow(`[RATE LIMIT 429] Limite atingido na chave ...${(currentApiKey||"").slice(-4)}. Rotacionando para próxima chave da fila...`));
+                currentApiKey = apiKeyManager.getKey();
+                if (!currentApiKey) throw new Error("Sem chaves no sistema para rotacionar.");
+                groq = new Groq({ apiKey: currentApiKey });
+                attempts++;
+                continue;
+            } 
+            else {
+                throw e;
+            }
+        }
+    }
+    throw new Error("Todas as chaves falharam ao tentar completar a requisição.");
+}
 const path = require("path");
 
 // ══════════════════════════════════════════
@@ -169,7 +207,7 @@ async function callAI(chatId, pushname, input, isOwner) {
             payload.tool_choice = "auto";
         }
 
-        const res = await groq.chat.completions.create(payload);
+        const res = await executeGroqWithRotation(payload);
         const responseMessage = res.choices[0].message;
         let hasTool = false;
 
@@ -235,9 +273,11 @@ async function callAI(chatId, pushname, input, isOwner) {
 
     if (!finalResponse) finalResponse = "Fiz o que pediu, mas não tenho texto pra responder.";
 
-    history.push({ role: 'user', content: `[De: ${pushname}] ${input}` });
-    history.push({ role: 'assistant', content: finalResponse });
-    saveMemory(chatId, history);
+    const newHistory = messages.filter(m => m.role !== 'system');
+    if (!newHistory.find(m => m.content === finalResponse && m.role === 'assistant')) {
+        newHistory.push({ role: 'assistant', content: finalResponse });
+    }
+    saveMemory(chatId, newHistory);
 
     logEvent(`AI chamada | Chat: ${chatId} | User: ${pushname} | Loops: ${currentLoop}`);
 
@@ -508,7 +548,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                 logError(`AI response (${from})`, e);
                 // Tentar com modelo fallback
                 try {
-                    const fallbackRes = await groq.chat.completions.create({
+                    const fallbackRes = await executeGroqWithRotation({
                         messages: [
                             { role: 'system', content: 'você é a sarah, responda brevemente e naturalmente em português' },
                             { role: 'user', content: textoFinal }
