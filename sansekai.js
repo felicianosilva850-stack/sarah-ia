@@ -488,17 +488,25 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
 
         const isGroup = from.endsWith('@g.us');
         const myNumber = sock.user.id.split(':')[0];
-        const isMentioned = message.mentionMe || budy.toLowerCase().includes('@' + myNumber);
+        
+        // Verificações de menção muito mais fortes
+        const isMentionedByTag = message.mentionedJid && message.mentionedJid.some(jid => jid.includes(myNumber));
+        const isMentionedByText = budy.includes('@' + myNumber);
+        const isReplyToMe = message.quoted && message.quoted.sender && message.quoted.sender.includes(myNumber);
+        
+        const isMentioned = isMentionedByTag || isMentionedByText || isReplyToMe;
         const startsWithSarah = budy.toLowerCase().startsWith('sarah');
 
         let shouldReply = false;
         let textoLimpo = budy;
 
         if (isGroup) {
-            // Em grupos: só responde se chamar pelo nome ou marcar
+            // Em grupos: só responde se chamar pelo nome, marcar ou responder a ela
             if (startsWithSarah || isMentioned) {
                 shouldReply = true;
                 if (startsWithSarah) textoLimpo = budy.replace(/^sarah\s*/i, '').trim() || "oi";
+                // Limpa a menção por arroba do texto pra IA não ficar confusa
+                textoLimpo = textoLimpo.replace(new RegExp(`@${myNumber}`, 'g'), '').trim() || textoLimpo;
             }
         } else {
             // Em DM: responde sempre
