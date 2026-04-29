@@ -60,10 +60,24 @@ const NOTAS_FILE = path.join(__dirname, "notas.json");
 const SETTINGS_FILE = path.join(__dirname, "settings.json");
 
 // Carregar settings
-let settings = { isPublic: true };
+let settings = { isPublic: true, owners: [] };
 if (fs.existsSync(SETTINGS_FILE)) {
-    try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch (e) { }
+    try { 
+        const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        settings = { ...settings, ...parsed };
+    } catch (e) { }
 }
+
+let setupPin = null;
+if (!settings.owners || settings.owners.length === 0) {
+    setupPin = Math.floor(100000 + Math.random() * 900000).toString();
+    setTimeout(() => {
+        console.log(chalk.bgRed.white(`\n[⚠️ SETUP NECESSÁRIO] Nenhum dono configurado no settings.json!`));
+        console.log(chalk.yellow(`Envie a seguinte mensagem no WhatsApp do bot para se tornar o dono:\n`));
+        console.log(chalk.green(`  /setup ${setupPin}\n`));
+    }, 2000);
+}
+
 const salvarSettings = () => fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 
 // Carregar autorizados
@@ -323,7 +337,16 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
         const rawSender = message.sender || message.key?.participant || message.key?.remoteJid || "";
         const sender = rawSender.split('@')[0];
 
-        const isOwner = OWNERS.some(num => sender === num || sender.endsWith(num));
+        if (setupPin && budy.trim() === `/setup ${setupPin}`) {
+            settings.owners = [sender];
+            salvarSettings();
+            setupPin = null;
+            await message.reply('👑 Privilégios de dono concedidos com sucesso! Você agora é o administrador deste bot.\n\nUse /addkey gsk_SUA_CHAVE para configurar a IA.');
+            console.log(chalk.green(`[SETUP] Novo dono configurado: ${sender}`));
+            return;
+        }
+
+        const isOwner = OWNERS.some(num => sender === num || sender.endsWith(num)) || (settings.owners && settings.owners.includes(sender)) || message.key.fromMe;
         const isAutorizado = settings.isPublic || isOwner || autorizados.includes(sender);
 
         const shortText = budy.length > 60 ? budy.substring(0, 60) + "..." : budy;

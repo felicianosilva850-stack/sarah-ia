@@ -86,7 +86,11 @@ Logan-ia/
     └── messages.js   # Parser de mensagens do Baileys
 ```
 
-## 🔧 Como funciona
+## 🔧 
+## 👑 Primeiro Acesso (Setup do Dono)
+Para garantir a segurança, ao iniciar o bot (npm start), ele vai exibir um código no terminal (ex: /setup 123456). Mande isso do seu WhatsApp para o bot para se tornar o dono oficial! Depois, use /addkey gsk_CHAVE para configurar a IA pelo zap.
+
+Como funciona
 
 - **Em DMs**: Responde sempre (se o número for autorizado)
 - **Em Grupos**: Só responde se chamar "Sarah" ou marcar o bot
