@@ -207,7 +207,26 @@ async function callAI(chatId, pushname, input, isOwner) {
             payload.tool_choice = "auto";
         }
 
-        const res = await executeGroqWithRotation(payload);
+        let res;
+        try {
+            res = await executeGroqWithRotation(payload);
+        } catch (err) {
+            const errStr = String(err.message || err.error || err);
+            if (errStr.includes('tool_use_failed') && errStr.includes('<function=')) {
+                let failedGen = errStr;
+                try {
+                    const parsedErr = JSON.parse(errStr.substring(errStr.indexOf('{')));
+                    if (parsedErr.error && parsedErr.error.failed_generation) {
+                        failedGen = parsedErr.error.failed_generation;
+                    }
+                } catch(e) {}
+                
+                console.log(require('chalk').yellow(`[RECOVERY] Interceptado erro 400 da Groq. Recuperando tool_calls...`));
+                res = { choices: [{ message: { role: 'assistant', content: failedGen } }] };
+            } else {
+                throw err;
+            }
+        }
         const responseMessage = res.choices[0].message;
         let hasTool = false;
 
@@ -241,7 +260,7 @@ async function callAI(chatId, pushname, input, isOwner) {
         else if (responseMessage.content && responseMessage.content.includes('<function=')) {
             hasTool = true;
             messages.push(responseMessage);
-            const regex = /<function=([^>]+)>(.*?)<\/function>/g;
+            const regex = /<function=([a-zA-Z0-9_]+)[^a-zA-Z0-9_]*(\{.*?\})[\s\S]*?<\/function>/g;
             let match;
             while ((match = regex.exec(responseMessage.content)) !== null) {
                 const funcName = match[1];
