@@ -124,6 +124,23 @@ const groqTools = [
                 required: ["command"]
             }
         }
+    },
+    {
+        type: "function",
+        function: {
+            name: "consultar_clima",
+            description: "Consulta a previsão do tempo e temperatura atual de uma cidade.",
+            parameters: {
+                type: "object",
+                properties: {
+                    cidade: {
+                        type: "string",
+                        description: "O nome da cidade. Exemplo: São Paulo, Rio de Janeiro"
+                    }
+                },
+                required: ["cidade"]
+            }
+        }
     }
 ];
 
@@ -201,6 +218,30 @@ async function callAI(chatId, pushname, input, isOwner) {
                         content: String(result).substring(0, 4000)
                     });
                 }
+                else if (toolCall.function.name === 'consultar_clima') {
+                    let args;
+                    try {
+                        args = JSON.parse(toolCall.function.arguments);
+                    } catch (e) {
+                        args = { cidade: "São Paulo" };
+                    }
+                    console.log(chalk.blue(`[⚙️ FERRAMENTA] Consultando clima para: ${args.cidade}`));
+                    try {
+                        const response = await fetch(`https://wttr.in/${encodeURIComponent(args.cidade)}?format=3`);
+                        const clima = await response.text();
+                        messages.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            content: clima || "Não foi possível pegar o clima."
+                        });
+                    } catch (e) {
+                        messages.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            content: `Erro ao buscar clima: ${e.message}`
+                        });
+                    }
+                }
             }
         } 
         else if (responseMessage.content && responseMessage.content.includes('<function=')) {
@@ -218,6 +259,20 @@ async function callAI(chatId, pushname, input, isOwner) {
                         messages.push({
                             role: 'system',
                             content: `[Comando executado]: ${String(result).substring(0, 4000)}`
+                        });
+                    } catch(e) {
+                        messages.push({ role: 'system', content: `[Erro na formatação JSON da ferramenta]: ${e.message}` });
+                    }
+                }
+                else if (funcName === 'consultar_clima') {
+                    try {
+                        const args = JSON.parse(match[2]);
+                        console.log(chalk.blue(`[⚙️ FERRAMENTA VAZADA] Recuperando clima para: ${args.cidade}`));
+                        const response = await fetch(`https://wttr.in/${encodeURIComponent(args.cidade)}?format=3`);
+                        const clima = await response.text();
+                        messages.push({
+                            role: 'system',
+                            content: `[Clima atual]: ${clima}`
                         });
                     } catch(e) {
                         messages.push({ role: 'system', content: `[Erro na formatação JSON da ferramenta]: ${e.message}` });
