@@ -95,54 +95,30 @@ function logEvent(event) {
 }
 
 // ══════════════════════════════════════════
-//  CHAMADA À IA — GROQ (llama 3.3 70B)
+//  CARREGADOR DE SKILLS E CHAMADA À IA
 // ══════════════════════════════════════════
 
-const runCommand = (cmd) => {
-    return new Promise((resolve) => {
-        exec(cmd, (error, stdout, stderr) => {
-            if (error) resolve(`Erro: ${error.message}\n${stderr}`);
-            else resolve(stdout || "Comando executado sem saída visível.");
-        });
-    });
-};
+const SKILLS_DIR = path.join(__dirname, "skills");
+if (!fs.existsSync(SKILLS_DIR)) fs.mkdirSync(SKILLS_DIR);
 
-const groqTools = [
-    {
-        type: "function",
-        function: {
-            name: "run_terminal_command",
-            description: "Executa comandos no terminal do host (Windows/PowerShell ou Linux/Termux no Android). Use para ler, criar, editar arquivos ou rodar scripts. Adapte os comandos para Linux ou Windows conforme necessário.",
-            parameters: {
-                type: "object",
-                properties: {
-                    command: {
-                        type: "string",
-                        description: "Comando a ser executado no terminal."
-                    }
-                },
-                required: ["command"]
+const loadedSkills = {};
+const groqTools = [];
+
+// Carrega todas as skills na inicialização
+fs.readdirSync(SKILLS_DIR).forEach(file => {
+    if (file.endsWith('.js')) {
+        try {
+            const skill = require(path.join(SKILLS_DIR, file));
+            if (skill.definition && skill.execute) {
+                loadedSkills[skill.definition.function.name] = skill;
+                groqTools.push(skill.definition);
+                console.log(chalk.green(`[SKILL] Carregada: ${skill.definition.function.name}`));
             }
-        }
-    },
-    {
-        type: "function",
-        function: {
-            name: "consultar_clima",
-            description: "Consulta a previsão do tempo e temperatura atual de uma cidade.",
-            parameters: {
-                type: "object",
-                properties: {
-                    cidade: {
-                        type: "string",
-                        description: "O nome da cidade. Exemplo: São Paulo, Rio de Janeiro"
-                    }
-                },
-                required: ["cidade"]
-            }
+        } catch (e) {
+            console.error(chalk.red(`[ERRO SKILL] Falha ao carregar ${file}:`), e.message);
         }
     }
-];
+});
 
 async function callAI(chatId, pushname, input, isOwner) {
     let history = getMemory(chatId);
@@ -188,7 +164,7 @@ async function callAI(chatId, pushname, input, isOwner) {
             frequency_penalty: 0.3
         };
 
-        if (isOwner) {
+        if (isOwner && groqTools.length > 0) {
             payload.tools = groqTools;
             payload.tool_choice = "auto";
         }
@@ -199,48 +175,28 @@ async function callAI(chatId, pushname, input, isOwner) {
 
         if (responseMessage.tool_calls) {
             hasTool = true;
-            // Prevenir bug da Groq de fechar conexão quando content é null
             responseMessage.content = responseMessage.content || "";
             messages.push(responseMessage);
             for (const toolCall of responseMessage.tool_calls) {
-                if (toolCall.function.name === 'run_terminal_command') {
+                const funcName = toolCall.function.name;
+                const skill = loadedSkills[funcName];
+                
+                if (skill) {
                     let args;
-                    try {
-                        args = JSON.parse(toolCall.function.arguments);
-                    } catch (e) {
-                        args = { command: "" };
-                    }
-                    console.log(chalk.blue(`[⚙️ FERRAMENTA] Executando comando: ${args.command}`));
-                    const result = await runCommand(args.command);
+                    try { args = JSON.parse(toolCall.function.arguments); } catch (e) { args = {}; }
+                    console.log(chalk.blue(`[⚙️ FERRAMENTA] Executando: ${funcName}`));
+                    const result = await skill.execute(args);
                     messages.push({
                         role: 'tool',
                         tool_call_id: toolCall.id,
                         content: String(result).substring(0, 4000)
                     });
-                }
-                else if (toolCall.function.name === 'consultar_clima') {
-                    let args;
-                    try {
-                        args = JSON.parse(toolCall.function.arguments);
-                    } catch (e) {
-                        args = { cidade: "São Paulo" };
-                    }
-                    console.log(chalk.blue(`[⚙️ FERRAMENTA] Consultando clima para: ${args.cidade}`));
-                    try {
-                        const response = await fetch(`https://wttr.in/${encodeURIComponent(args.cidade)}?format=3`);
-                        const clima = await response.text();
-                        messages.push({
-                            role: 'tool',
-                            tool_call_id: toolCall.id,
-                            content: clima || "Não foi possível pegar o clima."
-                        });
-                    } catch (e) {
-                        messages.push({
-                            role: 'tool',
-                            tool_call_id: toolCall.id,
-                            content: `Erro ao buscar clima: ${e.message}`
-                        });
-                    }
+                } else {
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: toolCall.id,
+                        content: `[Erro]: Ferramenta ${funcName} não encontrada.`
+                    });
                 }
             }
         } 
@@ -251,31 +207,19 @@ async function callAI(chatId, pushname, input, isOwner) {
             let match;
             while ((match = regex.exec(responseMessage.content)) !== null) {
                 const funcName = match[1];
-                if (funcName === 'run_terminal_command') {
+                const skill = loadedSkills[funcName];
+                
+                if (skill) {
                     try {
                         const args = JSON.parse(match[2]);
-                        console.log(chalk.blue(`[⚙️ FERRAMENTA VAZADA] Recuperando comando: ${args.command}`));
-                        const result = await runCommand(args.command);
+                        console.log(chalk.blue(`[⚙️ VAZADA] Recuperando: ${funcName}`));
+                        const result = await skill.execute(args);
                         messages.push({
                             role: 'system',
                             content: `[Comando executado]: ${String(result).substring(0, 4000)}`
                         });
                     } catch(e) {
-                        messages.push({ role: 'system', content: `[Erro na formatação JSON da ferramenta]: ${e.message}` });
-                    }
-                }
-                else if (funcName === 'consultar_clima') {
-                    try {
-                        const args = JSON.parse(match[2]);
-                        console.log(chalk.blue(`[⚙️ FERRAMENTA VAZADA] Recuperando clima para: ${args.cidade}`));
-                        const response = await fetch(`https://wttr.in/${encodeURIComponent(args.cidade)}?format=3`);
-                        const clima = await response.text();
-                        messages.push({
-                            role: 'system',
-                            content: `[Clima atual]: ${clima}`
-                        });
-                    } catch(e) {
-                        messages.push({ role: 'system', content: `[Erro na formatação JSON da ferramenta]: ${e.message}` });
+                        messages.push({ role: 'system', content: `[Erro JSON na ferramenta]: ${e.message}` });
                     }
                 }
             }
@@ -291,12 +235,10 @@ async function callAI(chatId, pushname, input, isOwner) {
 
     if (!finalResponse) finalResponse = "Fiz o que pediu, mas não tenho texto pra responder.";
 
-    // Salvar na memória isolada
     history.push({ role: 'user', content: `[De: ${pushname}] ${input}` });
     history.push({ role: 'assistant', content: finalResponse });
     saveMemory(chatId, history);
 
-    // Log de uso
     logEvent(`AI chamada | Chat: ${chatId} | User: ${pushname} | Loops: ${currentLoop}`);
 
     return finalResponse;
