@@ -42,7 +42,7 @@ const fs = require("fs");
 const path = require("path");
 
 if (!fs.existsSync('./key.json')) {
-	fs.writeFileSync('./key.json', JSON.stringify({ keyopenai: "gsk_" + "XMwijoZTWy4BnoQXflouWGdyb3FYj9zhRk96Fu75qYoKqShehfVC" }, null, 2));
+	fs.writeFileSync('./key.json', JSON.stringify({ keyopenai: "gsk_SUA_CHAVE_AQUI" }, null, 2));
 }
 
 const Pino = require("pino");
@@ -148,8 +148,10 @@ async function startBot() {
 				const delay = lastStatus === 515 ? 1000 : 3000;
 				setTimeout(() => startBot(), delay);
 			} else {
-				try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
-				setTimeout(() => startBot(), 2000);
+				setTimeout(() => {
+					try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
+					startBot();
+				}, 3000);
 			}
 		}
 

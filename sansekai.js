@@ -1,5 +1,6 @@
 const { BufferJSON, WA_DEFAULT_EPHEMERAL, generateWAMessageFromContent, proto, generateWAMessageContent, generateWAMessage, prepareWAMessageMedia, areJidsSameUser, getContentType } = require("@whiskeysockets/baileys");
 const fs = require("fs"), util = require("util"), chalk = require("chalk"), Groq = require("groq-sdk");
+const { exec } = require("child_process");
 let setting = require("./key.json");
 const groq = new Groq({ apiKey: setting.keyopenai });
 const path = require("path");
@@ -69,7 +70,11 @@ function saveMemory(chatId, history) {
     const file = path.join(MEMORY_DIR, `${safeName}.json`);
     // Auto-trim: manter só as últimas MAX_HISTORY mensagens
     if (history.length > MAX_HISTORY) {
-        history = history.slice(-MAX_HISTORY);
+        let cortado = history.slice(-MAX_HISTORY);
+        if (cortado.length > 0 && cortado[0].role === 'assistant') {
+            cortado.shift();
+        }
+        history = cortado;
     }
     fs.writeFileSync(file, JSON.stringify(history, null, 2));
 }
@@ -92,9 +97,39 @@ function logEvent(event) {
 // ══════════════════════════════════════════
 //  CHAMADA À IA — GROQ (llama 3.3 70B)
 // ══════════════════════════════════════════
-async function callAI(chatId, pushname, input) {
+
+const runCommand = (cmd) => {
+    return new Promise((resolve) => {
+        exec(cmd, (error, stdout, stderr) => {
+            if (error) resolve(`Erro: ${error.message}\n${stderr}`);
+            else resolve(stdout || "Comando executado sem saída visível.");
+        });
+    });
+};
+
+const groqTools = [
+    {
+        type: "function",
+        function: {
+            name: "run_terminal_command",
+            description: "Executa comandos no terminal do host (Windows/PowerShell ou Linux/Termux no Android). Use para ler, criar, editar arquivos ou rodar scripts. Adapte os comandos para Linux ou Windows conforme necessário.",
+            parameters: {
+                type: "object",
+                properties: {
+                    command: {
+                        type: "string",
+                        description: "Comando a ser executado no terminal."
+                    }
+                },
+                required: ["command"]
+            }
+        }
+    }
+];
+
+async function callAI(chatId, pushname, input, isOwner) {
     let history = getMemory(chatId);
-    const systemPrompt = fs.readFileSync(SYSTEM_FILE, 'utf8');
+    let systemPrompt = fs.readFileSync(SYSTEM_FILE, 'utf8');
 
     // Montar contexto
     let messages = [{ role: 'system', content: systemPrompt }];
@@ -113,32 +148,103 @@ async function callAI(chatId, pushname, input) {
 
     // Limitar contexto pra não estourar tokens
     if (messages.length > MAX_HISTORY + 3) {
-        history = history.slice(-(MAX_HISTORY));
+        let cortado = history.slice(-MAX_HISTORY);
+        if (cortado.length > 0 && cortado[0].role === 'assistant') {
+            cortado.shift();
+        }
+        history = cortado;
         messages = [{ role: 'system', content: systemPrompt }].concat(history);
         messages.push({ role: 'user', content: `[De: ${pushname}] ${input}` });
     }
 
-    const res = await groq.chat.completions.create({
-        messages: messages,
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.75,
-        max_tokens: 1024,
-        top_p: 0.9,
-        frequency_penalty: 0.3 // Evita repetição
-    });
+    let finalResponse = "";
+    let maxLoops = 5;
+    let currentLoop = 0;
 
-    const resposta = res.choices[0].message.content;
+    while (currentLoop < maxLoops) {
+        const payload = {
+            messages: messages,
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0.75,
+            max_tokens: 1024,
+            top_p: 0.9,
+            frequency_penalty: 0.3
+        };
+
+        if (isOwner) {
+            payload.tools = groqTools;
+            payload.tool_choice = "auto";
+        }
+
+        const res = await groq.chat.completions.create(payload);
+        const responseMessage = res.choices[0].message;
+        let hasTool = false;
+
+        if (responseMessage.tool_calls) {
+            hasTool = true;
+            // Prevenir bug da Groq de fechar conexão quando content é null
+            responseMessage.content = responseMessage.content || "";
+            messages.push(responseMessage);
+            for (const toolCall of responseMessage.tool_calls) {
+                if (toolCall.function.name === 'run_terminal_command') {
+                    let args;
+                    try {
+                        args = JSON.parse(toolCall.function.arguments);
+                    } catch (e) {
+                        args = { command: "" };
+                    }
+                    console.log(chalk.blue(`[⚙️ FERRAMENTA] Executando comando: ${args.command}`));
+                    const result = await runCommand(args.command);
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: toolCall.id,
+                        content: String(result).substring(0, 4000)
+                    });
+                }
+            }
+        } 
+        else if (responseMessage.content && responseMessage.content.includes('<function=')) {
+            hasTool = true;
+            messages.push(responseMessage);
+            const regex = /<function=([^>]+)>(.*?)<\/function>/g;
+            let match;
+            while ((match = regex.exec(responseMessage.content)) !== null) {
+                const funcName = match[1];
+                if (funcName === 'run_terminal_command') {
+                    try {
+                        const args = JSON.parse(match[2]);
+                        console.log(chalk.blue(`[⚙️ FERRAMENTA VAZADA] Recuperando comando: ${args.command}`));
+                        const result = await runCommand(args.command);
+                        messages.push({
+                            role: 'system',
+                            content: `[Comando executado]: ${String(result).substring(0, 4000)}`
+                        });
+                    } catch(e) {
+                        messages.push({ role: 'system', content: `[Erro na formatação JSON da ferramenta]: ${e.message}` });
+                    }
+                }
+            }
+        }
+
+        if (hasTool) {
+            currentLoop++;
+        } else {
+            finalResponse = (responseMessage.content || "").replace(/<function=.*?<\/function>/gs, '').trim();
+            break;
+        }
+    }
+
+    if (!finalResponse) finalResponse = "Fiz o que pediu, mas não tenho texto pra responder.";
 
     // Salvar na memória isolada
     history.push({ role: 'user', content: `[De: ${pushname}] ${input}` });
-    history.push({ role: 'assistant', content: resposta });
+    history.push({ role: 'assistant', content: finalResponse });
     saveMemory(chatId, history);
 
     // Log de uso
-    const tokens = res.usage?.total_tokens || 0;
-    logEvent(`AI chamada | Chat: ${chatId} | Tokens: ${tokens} | User: ${pushname}`);
+    logEvent(`AI chamada | Chat: ${chatId} | User: ${pushname} | Loops: ${currentLoop}`);
 
-    return resposta;
+    return finalResponse;
 }
 
 // ══════════════════════════════════════════
@@ -155,7 +261,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
         // Se a mensagem contiver a marca d'água invisível, foi enviada pelo próprio bot. Ignorar para evitar loop.
         if (budy.includes('\u200B')) return;
 
-        var prefix = /^[\\/!#.]/gi.test(budy) ? budy.match(/^[\\/!#.]/gi) : "/";
+        var prefix = /^[\\/!#.]/gi.test(budy) ? budy.match(/^[\\/!#.]/gi)[0] : "/";
         const isCmd = budy.startsWith(prefix);
         const command = isCmd ? budy.replace(prefix, "").trim().split(/ +/).shift().toLowerCase() : "";
         const args = budy.trim().split(/ +/).slice(1);
@@ -167,7 +273,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
         const sender = rawSender.split('@')[0];
 
         // Verificação de dono (só pra comandos admin)
-        const isOwner = OWNERS.some(num => sender.includes(num) || num.includes(sender));
+        const isOwner = OWNERS.some(num => sender === num || sender.endsWith(num));
         const isAutorizado = settings.isPublic || isOwner || autorizados.includes(sender);
 
         const shortText = budy.length > 60 ? budy.substring(0, 60) + "..." : budy;
@@ -382,7 +488,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                     });
                 } catch { }
 
-                const resposta = await callAI(from, pending.pushname, textoFinal);
+                const resposta = await callAI(from, pending.pushname, textoFinal, isOwner);
                 await sock.sendMessage(from, { text: resposta + '\u200B' }, { quoted: pending.msgRef });
 
                 // Remover react
