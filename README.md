@@ -75,11 +75,14 @@ npm start
 ```
 Sarah-ia/
 ├── index.js          # Conexão WhatsApp (Baileys)
-├── sansekai.js       # Handler de mensagens + IA
-├── SYSTEM.md         # Identidade/alma do Sarah
-├── key.json          # API key do Groq
-├── autorizados.json  # Lista de números autorizados
-├── notas.json        # Notas persistentes por chat
+├── sansekai.js       # Handler principal e cérebro da IA
+├── apiKeyManager.js  # Sistema de rotação de chaves da Groq
+├── SYSTEM.md         # Identidade/alma da Sarah
+├── key.json          # Arquivo com as chaves da API
+├── settings.json     # Configurações do bot e número do Dono
+├── skills/           # Ferramentas modulares (Function Calling)
+│   ├── consultar_clima.js
+│   └── run_terminal.js
 ├── memory/           # Memória isolada por chat (JSON)
 ├── learnings/        # Logs de erros e eventos
 └── lib/
