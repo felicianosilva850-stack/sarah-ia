@@ -1,125 +1,58 @@
-# 🐺 SARAH AI — Bot WhatsApp
+# 🐺 LOGAN AI — Bot WhatsApp
 
-Bot inteligente para WhatsApp usando Baileys + Groq AI (LLaMA 3.3 70B).
-Arquitetura inspirada na ISA — identidade forte, memória persistente, debounce e naturalidade.
+Bot inteligente para WhatsApp usando Baileys + Suporte Multi-API (Gemini & Groq).
+Arquitetura robusta com memória isolada, debounce e suporte a ferramentas (skills).
 
 ## ⚡ Instalação Rápida no Termux (Android)
 
-Se você quiser instalar tudo de uma vez, clique no botão de copiar ali no canto direito do quadro abaixo e cole no Termux:
+Se você quiser instalar tudo de uma vez, copie e cole no Termux:
 
 ```bash
-pkg update && pkg upgrade -y && pkg install nodejs git -y && cd /data/data/com.termux/files/home && git clone https://github.com/davyfll472-arch/Sarah-ia.git && cd Sarah-ia && npm install && npm start
+pkg update && pkg upgrade -y && pkg install nodejs git -y && cd /data/data/com.termux/files/home && git clone https://github.com/davyfll472-arch/Logan-ia.git && cd Logan-ia && npm install && npm start
 ```
 
 ---
 
-### Instalação Passo a Passo (se preferir)
-
-**1. Atualizar e instalar dependências base**
-```bash
-pkg update && pkg upgrade -y
-pkg install nodejs git -y
-```
-
-**2. Clonar o projeto**
-```bash
-cd /data/data/com.termux/files/home
-git clone https://github.com/davyfll472-arch/Sarah-ia.git
-```
-
-**3. Entrar na pasta e instalar**
-```bash
-cd Sarah-ia
-npm install
-```
-
-**4. Rodar**
-```bash
-npm start
-```
-
-### Primeira vez
-Na primeira execução, o bot vai pedir o **número do WhatsApp com DDI**.
-Exemplo: `5511999999999`
-
-Ele vai gerar um **código de pareamento** — vá no WhatsApp → Dispositivos Conectados → Conectar Dispositivo → Inserir código.
-
-### Dica: Manter rodando no Termux
-```bash
-# Instalar o tmux pra manter rodando em background
-pkg install tmux -y
-
-# Criar sessão
-tmux new -s logan
-
-# Dentro do tmux, rodar o bot
-npm start
-
-# Pra desanexar: Ctrl+B, depois D
-# Pra voltar: tmux attach -t logan
-```
-
 ## 🔄 Como Atualizar o Bot
 
-Quando sair uma versão nova no GitHub, você não precisa apagar nada, é só puxar a atualização:
+Sempre que houver mudanças no repositório, use estes comandos para atualizar:
 
 ```bash
-cd /data/data/com.termux/files/home/Sarah-ia
+cd /data/data/com.termux/files/home/Logan-ia
 git pull
 npm install
 npm start
 ```
 
-## 🧠 Arquitetura
+## 🧠 Comandos de Administração (Dono)
 
-```
-Sarah-ia/
-├── index.js          # Conexão WhatsApp (Baileys)
-├── sansekai.js       # Handler principal e cérebro da IA
-├── apiKeyManager.js  # Sistema de rotação de chaves da Groq
-├── SYSTEM.md         # Identidade/alma da Sarah
-├── key.json          # Arquivo com as chaves da API
-├── settings.json     # Configurações do bot e número do Dono
-├── skills/           # Ferramentas modulares (Function Calling)
-│   ├── consultar_clima.js
-│   └── run_terminal.js
-├── memory/           # Memória isolada por chat (JSON)
-├── learnings/        # Logs de erros e eventos
-└── lib/
-    └── messages.js   # Parser de mensagens do Baileys
-```
+O bot agora permite alternar entre provedores de IA e gerenciar chaves diretamente pelo WhatsApp:
 
-## 🔧 
-## 👑 Primeiro Acesso (Setup do Dono)
-Para garantir a segurança, ao iniciar o bot (npm start), ele vai exibir um código no terminal (ex: /setup 123456). Mande isso do seu WhatsApp para o bot para se tornar o dono oficial! Depois, use /addkey gsk_CHAVE para configurar a IA pelo zap.
+- **Configurar Provedor**: `/provider [gemini|groq]`
+  - Exemplo: `/provider groq`
+- **Adicionar Chaves**: `/addkey [gemini|groq] [CHAVE]`
+  - Exemplo: `/addkey gemini AIzaSy...`
+  - Exemplo: `/addkey groq gsk_...`
 
-Como funciona
+## 🔑 Configuração das APIs
 
-- **Em DMs**: Responde sempre (se o número for autorizado)
-- **Em Grupos**: Só responde se chamar "Sarah" ou marcar o bot
-- **Debounce**: Espera 1.5s após a última msg antes de responder (agrupa msgs rápidas)
-- **Memória**: Cada chat tem memória isolada (últimas 30 mensagens)
-- **Fallback**: Se o modelo principal falhar, usa llama-3.1-8b como backup
-- **Reação**: Reage com 🧠 enquanto processa
+- **Gemini**: Suporta Function Calling (Skills) e modelos de alta performance (Google).
+- **Groq**: Alta velocidade com modelos Llama (Meta).
 
-## 🔑 Configuração
+O sistema gerencia a **rotação automática de chaves** para cada provedor. Se uma chave falhar ou atingir o limite, o bot rotaciona para a próxima automaticamente.
 
-Renomeie o arquivo `key.example.json` para `key.json` e adicione suas chaves da API da Groq.
+## 📁 Estrutura do Projeto
 
-O sistema agora suporta **rotação automática de chaves (Anti-Ban/Rate Limit)**! Se uma chave estourar o limite de uso (erro 429) ou falhar, o bot pula para a próxima da fila automaticamente sem perder a mensagem.
+- `index.js`: Conexão e pareamento via Baileys.
+- `sansekai.js`: Cérebro do bot, gerencia a lógica de IA e comandos.
+- `apiKeyManager.js`: Gerenciador de chaves Gemini/Groq com rotação.
+- `SYSTEM.md`: Definição de personalidade e regras da IA.
+- `settings.json`: Configurações de dono e provedor ativo.
+- `skills/`: Ferramentas que a IA pode usar (ex: consultar clima, rodar terminal).
+- `memory/`: Histórico de conversas salvo localmente por chat.
 
-```json
-{
-  "keys": [
-    "gsk_SUA_CHAVE_1",
-    "gsk_SUA_CHAVE_2",
-    "gsk_SUA_CHAVE_3"
-  ]
-}
-```
+## 👑 Primeiro Acesso (Setup)
+Na primeira execução, o bot exibirá um código no terminal (ex: `/setup 123456`). Envie este comando no WhatsApp do bot para se tornar o dono oficial e liberar os comandos de administração.
 
-Pegue suas chaves grátis em: https://console.groq.com/keys
-
-## 📝 Editando a personalidade
-
-Edite o arquivo `SYSTEM.md` — ele contém toda a identidade e regras de comportamento do Sarah. Pode editar pelo próprio WhatsApp com `/sistema [nova regra]`.
+---
+*Desenvolvido para Davy*
