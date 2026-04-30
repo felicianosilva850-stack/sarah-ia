@@ -5,7 +5,7 @@ module.exports = {
         type: "function",
         function: {
             name: "run_terminal_command",
-            description: "Executa comandos no terminal do host (Windows/PowerShell ou Linux/Termux no Android). Use para ler, criar, editar arquivos ou rodar scripts. Adapte os comandos para Linux ou Windows conforme necessário.",
+            description: "Executa comandos no terminal. DICA PARA TERMUX/ANDROID: Para abrir links/sites use 'termux-open-url <link>' (ex: termux-open-url https://google.com). Para abrir apps Android use 'monkey -p <nome.do.pacote> 1' (ex: monkey -p com.google.android.youtube 1). Não use 'start' ou 'xdg-open' no Termux.",
             parameters: {
                 type: "object",
                 properties: {
@@ -21,9 +21,9 @@ module.exports = {
     async execute(args) {
         return new Promise((resolve) => {
             const cmd = args.command || "";
-            exec(cmd, (error, stdout, stderr) => {
+            exec(cmd, { timeout: 15000 }, (error, stdout, stderr) => {
                 if (error) resolve(`Erro: ${error.message}\n${stderr}`);
-                else resolve(stdout || "Comando executado sem saída visível.");
+                else resolve(stdout ? stdout : "Comando executado com sucesso (sem saída visível).");
             });
         });
     }

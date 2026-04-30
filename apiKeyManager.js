@@ -64,7 +64,7 @@ function markFailure(failedKey) {
     if (cfg.keys && Array.isArray(cfg.keys)) {
       cfg.keys = cfg.keys.filter(k => k !== failedKey);
       saveConfig(cfg);
-      console.log(chalk.yellow(`[AVISO] apiKeyManager: Chave Groq removida permanentemente por falha/limite excedido: ${failedKey.substring(0, 8)}...`));
+      console.log(chalk.yellow(`[AVISO] apiKeyManager: Chave Gemini removida permanentemente por falha/limite excedido: ${failedKey.substring(0, 8)}...`));
     }
   } catch (e) {
     console.error(chalk.red('[ERRO] apiKeyManager: Falha ao persistir remoção de chave: ' + (e && e.message)));
