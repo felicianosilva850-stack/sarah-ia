@@ -155,6 +155,7 @@ if (!fs.existsSync(SKILLS_DIR)) fs.mkdirSync(SKILLS_DIR);
 
 const loadedSkills = {};
 const groqTools = [];
+const recentSentTexts = new Set();
 
 // Carrega todas as skills na inicialização
 fs.readdirSync(SKILLS_DIR).forEach(file => {
@@ -330,6 +331,7 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
 
         // Se a mensagem contiver a marca d'água invisível, foi enviada pelo próprio bot. Ignorar para evitar loop.
         if (budy.includes('\u200B')) return;
+        if (message.key.fromMe && recentSentTexts.has(budy.trim())) return;
 
         const pushname = message.pushName || "Usuário";
         const from = message.chat;
@@ -439,6 +441,8 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                 } catch { }
 
                 const resposta = await callAI(from, pending.pushname, textoFinal, isOwner);
+                recentSentTexts.add(resposta.trim());
+                setTimeout(() => recentSentTexts.delete(resposta.trim()), 60000);
                 await sock.sendMessage(from, { text: resposta + '\u200B' }, { quoted: pending.msgRef });
 
                 // Remover react
@@ -462,6 +466,8 @@ module.exports = sansekai = async (upsert, sock, store, message) => {
                         max_tokens: 256
                     });
                     const fallbackTexto = fallbackRes.choices[0].message.content;
+                    recentSentTexts.add(fallbackTexto.trim());
+                    setTimeout(() => recentSentTexts.delete(fallbackTexto.trim()), 60000);
                     await sock.sendMessage(from, { text: fallbackTexto + '\u200B' }, { quoted: pending.msgRef });
                 } catch (e2) {
                     logError("AI fallback", e2);
