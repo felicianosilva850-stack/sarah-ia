@@ -96,7 +96,7 @@ let setupPin = null;
 if (!settings.owners || settings.owners.length === 0) {
     setupPin = Math.floor(100000 + Math.random() * 900000).toString();
     setTimeout(() => {
-        console.log(chalk.bgRed.white(`\n[⚠️ SETUP NECESSÁRIO] Nenhum dono configurado no settings.json!`));
+        console.log(chalk.bgRed.white(`n[⚠️ SETUP NECESSÁRIO] Nenhum dono configurado no settings.json!`));
         console.log(chalk.yellow(`Envie a seguinte mensagem no WhatsApp do bot para se tornar o dono:\n`));
         console.log(chalk.green(`  /setup ${setupPin}\n`));
     }, 2000);
