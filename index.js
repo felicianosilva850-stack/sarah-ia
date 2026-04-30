@@ -174,7 +174,7 @@ async function startBot() {
 
 			const message = Messages({ messages: [msg], type }, sock);
 			if (!message) continue;
-			require("./sansekai.js")({ messages: [msg], type }, sock, store, message);
+			require("./sansekai.js")(sock, message);
 		}
 	});
 }
