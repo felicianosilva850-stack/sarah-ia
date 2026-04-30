@@ -132,6 +132,7 @@ async function startBot() {
 	}
 
 	store?.bind(sock.ev);
+	require("./lib/reminders.js").start(sock);
 
 	sock.ev.on('creds.update', saveCreds);
 
