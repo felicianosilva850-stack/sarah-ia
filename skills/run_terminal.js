@@ -1,17 +1,23 @@
 const { exec } = require("child_process");
+const os = require("os");
+
+const isWindows = os.platform() === 'win32';
+const dicaTerminal = isWindows 
+    ? "DICA PARA WINDOWS: Para abrir links/sites use 'start <link>' (ex: start https://youtube.com). Para abrir programas use o nome do executável."
+    : "DICA PARA TERMUX/ANDROID: Para abrir links/sites use 'termux-open-url <link>'. Para abrir apps use 'monkey -p <pacote> 1'. Não use 'start' no Termux.";
 
 module.exports = {
     definition: {
         type: "function",
         function: {
             name: "run_terminal_command",
-            description: "Executa comandos no terminal. DICA PARA TERMUX/ANDROID: Para abrir links/sites use 'termux-open-url <link>' (ex: termux-open-url https://google.com). Para abrir apps Android use 'monkey -p <nome.do.pacote> 1' (ex: monkey -p com.google.android.youtube 1). Não use 'start' ou 'xdg-open' no Termux.",
+            description: `Executa comandos no terminal do sistema. ${dicaTerminal}`,
             parameters: {
                 type: "object",
                 properties: {
                     command: {
                         type: "string",
-                        description: "Comando a ser executado no terminal."
+                        description: "Comando a ser executado."
                     }
                 },
                 required: ["command"]

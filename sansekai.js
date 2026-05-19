@@ -1,18 +1,22 @@
 const { BufferJSON, WA_DEFAULT_EPHEMERAL, generateWAMessageFromContent, proto, generateWAMessageContent, generateWAMessage, prepareWAMessageMedia, areJidsSameUser, getContentType } = require("@whiskeysockets/baileys");
 const fs = require("fs"), util = require("util"), chalk = require("chalk"), path = require("path");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const Groq = require("groq-sdk");
 const { exec } = require("child_process");
 const apiKeyManager = require("./apiKeyManager");
+
+// ══════════════════════════════════════════
+//        MÓDULOS EXTRAÍDOS
+// ══════════════════════════════════════════
+
+const { executeGemini, executeGroq, executeOpenRouter, executeOllama, callProvider } = require("./lib/providers");
+const { getMemory, saveMemory, summarizeIfNeeded, MEMORY_DIR } = require("./lib/memory");
+const { loadedSkills, groqTools, convertToolToGemini } = require("./lib/skills-loader");
 
 // ══════════════════════════════════════════
 //        ARQUITETURA MODULAR
 // ══════════════════════════════════════════
 
 // Diretórios
-const MEMORY_DIR = path.join(__dirname, "memory");
 const LEARNINGS_DIR = path.join(__dirname, "learnings");
-if (!fs.existsSync(MEMORY_DIR)) fs.mkdirSync(MEMORY_DIR);
 if (!fs.existsSync(LEARNINGS_DIR)) fs.mkdirSync(LEARNINGS_DIR);
 
 // Arquivos core
@@ -26,7 +30,7 @@ let settings = {
     isPublic: true, 
     owners: [], 
     provider: "gemini", // padrão
-    groqModel: "llama-3.1-8b-instant",
+    groqModel: "llama-3.3-70b-versatile",
     geminiModel: "gemini-1.5-flash"
 };
 
@@ -39,126 +43,12 @@ if (fs.existsSync(SETTINGS_FILE)) {
 const salvarSettings = () => fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 
 // ══════════════════════════════════════════
-//  EXECUÇÃO DE IA (GEMINI / GROQ)
-// ══════════════════════════════════════════
-
-async function executeGemini(history, prompt, tools, system) {
-    let currentKey = apiKeyManager.getKey('gemini');
-    if (!currentKey) throw new Error("Sem chaves Gemini configuradas.");
-
-    let attempts = 0;
-    const maxAttempts = apiKeyManager.listKeys('gemini').length || 1;
-
-    while (attempts < maxAttempts) {
-        try {
-            const genAI = new GoogleGenerativeAI(currentKey);
-            const modelConfig = { model: settings.geminiModel || "gemini-1.5-flash" };
-            if (system) modelConfig.systemInstruction = system;
-            if (tools && tools.length > 0) modelConfig.tools = [{ functionDeclarations: tools }];
-
-            const model = genAI.getGenerativeModel(modelConfig);
-            const chat = model.startChat({ history });
-            const response = await chat.sendMessage(prompt);
-            return { text: response.response.text(), functionCalls: response.response.functionCalls && response.response.functionCalls(), chat };
-        } catch (e) {
-            const msg = String(e.message || e);
-            if (msg.includes('401') || msg.includes('API_KEY_INVALID')) {
-                apiKeyManager.markFailure(currentKey, 'gemini');
-                currentKey = apiKeyManager.getKey('gemini');
-                attempts++;
-            } else if (msg.includes('429') || msg.includes('quota')) {
-                currentKey = apiKeyManager.getKey('gemini');
-                attempts++;
-            } else throw e;
-        }
-    }
-    throw new Error("Falha no Gemini após rotação.");
-}
-
-async function executeGroq(history, prompt, system) {
-    let currentKey = apiKeyManager.getKey('groq');
-    if (!currentKey) throw new Error("Sem chaves Groq configuradas.");
-
-    const groq = new Groq({ apiKey: currentKey });
-    const messages = [{ role: "system", content: system }];
-    
-    // Converter history pro formato Groq/OpenAI
-    history.forEach(h => {
-        messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text });
-    });
-    messages.push({ role: "user", content: prompt });
-
-    try {
-        const chatCompletion = await groq.chat.completions.create({
-            messages: messages,
-            model: settings.groqModel || "llama-3.1-8b-instant",
-        });
-        return { text: chatCompletion.choices[0].message.content };
-    } catch (e) {
-        if (e.status === 401) apiKeyManager.markFailure(currentKey, 'groq');
-        throw e;
-    }
-}
-
-// ══════════════════════════════════════════
-//  FUNÇÕES AUXILIARES E SKILLS
-// ══════════════════════════════════════════
-
-function convertToolToGemini(openaiDef) {
-    const fn = openaiDef.function;
-    function convertType(prop) {
-        const out = { ...prop };
-        if (out.type) out.type = out.type.toUpperCase();
-        if (out.properties) {
-            for (const k in out.properties) out.properties[k] = convertType(out.properties[k]);
-        }
-        if (out.items) out.items = convertType(out.items);
-        return out;
-    }
-    return { name: fn.name, description: fn.description, parameters: convertType(fn.parameters) };
-}
-
-const loadedSkills = {};
-const groqTools = [];
-const SKILLS_DIR = path.join(__dirname, "skills");
-if (!fs.existsSync(SKILLS_DIR)) fs.mkdirSync(SKILLS_DIR);
-
-fs.readdirSync(SKILLS_DIR).forEach(file => {
-    if (file.endsWith('.js')) {
-        try {
-            const skill = require(path.join(SKILLS_DIR, file));
-            if (skill.definition && skill.execute) {
-                loadedSkills[skill.definition.function.name] = skill;
-                groqTools.push(skill.definition);
-            }
-        } catch (e) {}
-    }
-});
-
-// ══════════════════════════════════════════
-//  MEMÓRIA E LOGS
-// ══════════════════════════════════════════
-
-function getMemory(chatId) {
-    const safeName = chatId.replace(/[^a-zA-Z0-9@._-]/g, '_');
-    const file = path.join(MEMORY_DIR, `${safeName}.json`);
-    if (fs.existsSync(file)) try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
-    return [];
-}
-
-function saveMemory(chatId, history) {
-    const safeName = chatId.replace(/[^a-zA-Z0-9@._-]/g, '_');
-    const file = path.join(MEMORY_DIR, `${safeName}.json`);
-    if (history.length > 20) history = history.slice(-20);
-    fs.writeFileSync(file, JSON.stringify(history, null, 2));
-}
-
-// ══════════════════════════════════════════
 //  LÓGICA PRINCIPAL DE CHAMADA
 // ══════════════════════════════════════════
 
 async function callAI(chatId, pushname, input, isOwner) {
     let history = getMemory(chatId);
+    history = summarizeIfNeeded(history);
     let systemPrompt = fs.readFileSync(SYSTEM_FILE, 'utf8');
     const geminiHistory = history.map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
@@ -169,9 +59,73 @@ async function callAI(chatId, pushname, input, isOwner) {
     let finalResponse = "";
 
     try {
-        if (settings.provider === "groq") {
-            const res = await executeGroq(geminiHistory, promptFormatado, systemPrompt);
-            finalResponse = res.text;
+        if (settings.provider === 'openrouter') {
+            let tools = isOwner ? groqTools : [];
+            let res = await executeOpenRouter(geminiHistory, promptFormatado, systemPrompt, tools);
+            
+            if (res.functionCalls && res.functionCalls.length > 0) {
+                const functionResponses = [];
+                for (const call of res.functionCalls) {
+                    const skill = loadedSkills[call.name];
+                    if (skill) {
+                        const result = await skill.execute(call.args, { chatId });
+                        functionResponses.push({
+                            tool_call_id: call.id,
+                            role: "tool",
+                            name: call.name,
+                            content: String(result)
+                        });
+                    }
+                }
+                const resTool = await executeOpenRouter(geminiHistory, res.messages.concat(functionResponses), systemPrompt, tools);
+                finalResponse = resTool.text;
+            } else {
+                finalResponse = res.text;
+            }
+        } else if (settings.provider === 'ollama') {
+            let tools = []; // Desativado para evitar erro 400 Bad Request de modelos sem suporte a tools nativo
+            let res = await executeOllama(geminiHistory, promptFormatado, systemPrompt, tools);
+            
+            if (res.functionCalls && res.functionCalls.length > 0) {
+                const functionResponses = [];
+                for (const call of res.functionCalls) {
+                    const skill = loadedSkills[call.name];
+                    if (skill) {
+                        const result = await skill.execute(call.args, { chatId });
+                        functionResponses.push({
+                            role: 'tool',
+                            content: String(result)
+                        });
+                    }
+                }
+                const resTool = await executeOllama(geminiHistory, res.messages.concat(functionResponses), systemPrompt, tools);
+                finalResponse = resTool.text;
+            } else {
+                finalResponse = res.text;
+            }
+        } else if (settings.provider === "groq") {
+            let tools = isOwner ? groqTools : [];
+            let res = await executeGroq(geminiHistory, promptFormatado, systemPrompt, tools);
+            
+            if (res.functionCalls && res.functionCalls.length > 0) {
+                const functionResponses = [];
+                for (const call of res.functionCalls) {
+                    const skill = loadedSkills[call.name];
+                    if (skill) {
+                        const result = await skill.execute(call.args, { chatId });
+                        functionResponses.push({
+                            tool_call_id: call.id,
+                            role: "tool",
+                            name: call.name,
+                            content: String(result)
+                        });
+                    }
+                }
+                const resTool = await executeGroq(geminiHistory, res.messages.concat(functionResponses), systemPrompt, tools);
+                finalResponse = resTool.text;
+            } else {
+                finalResponse = res.text;
+            }
         } else {
             // Gemini com suporte a Tools
             let geminiTools = isOwner ? groqTools.map(convertToolToGemini) : [];
@@ -219,32 +173,78 @@ module.exports = sansekai = async (sock, message) => {
         const from = message.chat;
         const sender = (message.sender || "").split('@')[0];
         const pushname = message.pushName || "Usuário";
-        const isOwner = ["559491855060"].includes(sender) || message.key.fromMe; // Simplificado
+        const isOwner = ["559491855060", "5594991855060", "236949688311960", "101679106150440"].includes(sender) || message.key.fromMe;
+
+        // Log visual no terminal
+        const shortText = budy.length > 60 ? budy.substring(0, 60) + "..." : budy;
+        console.log(chalk.yellow('[💬]') + ' ' + chalk.cyan(pushname) + ' ' + chalk.gray(`(${sender})`) + ': ' + chalk.white(shortText));
+
+        // Filtro de Grupos
+        if (from.endsWith('@g.us')) {
+            const botNumber = sock.user?.id?.split(':')[0] || "";
+            const isQuotingBot = message.message?.extendedTextMessage?.contextInfo?.participant?.includes(botNumber);
+            const isMentioningBot = message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.some(jid => jid.includes(botNumber));
+            const hasName = budy.toLowerCase().includes('sarah');
+            if (!isQuotingBot && !isMentioningBot && !hasName) return;
+        }
 
         // Comandos de Admin
         if (isOwner && budy.startsWith('/')) {
-            const args = budy.split(' ');
-            const cmd = args[0].toLowerCase();
+            const args = budy.replace(/\s+/g, ' ').split(' ');
+            const cmd = args[0].toLowerCase() === '/' ? '/' + (args[1] || '').toLowerCase() : args[0].toLowerCase();
+            const realArgs = args[0].toLowerCase() === '/' ? args.slice(1) : args;
 
             if (cmd === '/provider') {
-                const p = args[1]?.toLowerCase();
-                if (['gemini', 'groq'].includes(p)) {
+                const p = realArgs[1]?.toLowerCase();
+                if (['gemini', 'groq', 'ollama', 'openrouter'].includes(p)) {
                     settings.provider = p;
                     salvarSettings();
                     return await message.reply(`✅ Provedor alterado para: ${p}`);
                 }
-                return await message.reply('Uso: /provider [gemini|groq]');
+                return await message.reply('Uso: /provider [gemini|groq|ollama|openrouter]');
+            }
+
+            if (cmd === '/reset') {
+                const safeName = from.replace(/[^a-zA-Z0-9@._-]/g, '_');
+                const memFile = path.join(MEMORY_DIR, `${safeName}.json`);
+                if (fs.existsSync(memFile)) fs.unlinkSync(memFile);
+                return await message.reply('🗑️ Conversa limpa');
             }
 
             if (cmd === '/addkey') {
-                const prov = args[1]?.toLowerCase();
-                const key = args[2];
-                if (['gemini', 'groq'].includes(prov) && key) {
-                    apiKeyManager.addKey(key, prov);
-                    return await message.reply(`✅ Chave ${prov} adicionada!`);
+                let rawContent = budy.substring(budy.toLowerCase().indexOf('addkey') + 6).replace(/\s+/g, '');
+                let prov = null;
+                let key = rawContent;
+
+                if (key.toLowerCase().startsWith('groq')) {
+                    prov = 'groq';
+                    key = key.substring(4);
+                } else if (key.toLowerCase().startsWith('gemini')) {
+                    prov = 'gemini';
+                    key = key.substring(6);
                 }
-                return await message.reply('Uso: /addkey [gemini|groq] [chave]');
+
+                if (key.startsWith('gsk_')) prov = 'groq';
+                else if (key.startsWith('AIzaSy')) prov = 'gemini';
+                else if (key.startsWith('sk-or-')) {
+                    // OpenRouter key
+                    if (!settings.openrouterKeys) settings.openrouterKeys = [];
+                    if (!settings.openrouterKeys.includes(key)) {
+                        settings.openrouterKeys.push(key);
+                        settings.openrouterKey = settings.openrouterKeys[0];
+                        salvarSettings();
+                    }
+                    return await message.reply(`✅ Chave OpenRouter adicionada! Total: ${settings.openrouterKeys.length} keys`);
+                }
+
+                if (prov && key) {
+                    apiKeyManager.addKey(key, prov);
+                    return await message.reply(`✅ Chave ${prov.toUpperCase()} identificada e adicionada com sucesso!`);
+                }
+                return await message.reply('Uso: /addkey [sua_chave]\n(O bot identifica sozinho se é Groq ou Gemini)');
             }
+            
+            return; // Ignora outros comandos com /
         }
 
         // Debounce e resposta
@@ -263,8 +263,12 @@ module.exports = sansekai = async (sock, message) => {
             pendingMessages.delete(pendingKey);
             
             try {
+                try { await sock.sendMessage(from, { react: { text: '🧠', key: message.key } }); } catch {}
+                await sock.sendPresenceUpdate('composing', from);
                 const response = await callAI(from, pushname, fullText, isOwner);
+                await sock.sendPresenceUpdate('paused', from);
                 await sock.sendMessage(from, { text: response + '\u200B' }, { quoted: message });
+                try { await sock.sendMessage(from, { react: { text: '', key: message.key } }); } catch {}
             } catch (e) { console.error(e); }
         }, 1500);
 

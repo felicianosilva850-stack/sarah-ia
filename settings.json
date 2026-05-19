@@ -1,9 +1,0 @@
-{
-  "isPublic": true,
-  "owners": [
-    "236949688311960"
-  ],
-  "provider": "gemini",
-  "groqModel": "llama-3.1-8b-instant",
-  "geminiModel": "gemini-1.5-flash"
-}

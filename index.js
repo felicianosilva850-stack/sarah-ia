@@ -49,7 +49,7 @@ const Pino = require("pino");
 const chalk = require("chalk");
 const moment = require("moment-timezone");
 const readline = require("readline");
-moment.tz.setDefault("America/Bahia").locale("pt-br");
+moment.tz.setDefault("America/Sao_Paulo").locale("pt-br");
 const { Messages } = require("./lib/messages.js");
 
 const question = (text) => {
