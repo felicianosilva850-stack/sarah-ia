@@ -1,28 +1,24 @@
-const { BufferJSON, WA_DEFAULT_EPHEMERAL, generateWAMessageFromContent, proto, generateWAMessageContent, generateWAMessage, prepareWAMessageMedia, areJidsSameUser, getContentType } = require("@whiskeysockets/baileys");
-const fs = require("fs"), util = require("util"), chalk = require("chalk"), path = require("path");
-const { exec } = require("child_process");
+const fs = require("fs"), chalk = require("chalk"), path = require("path");
 const apiKeyManager = require("./apiKeyManager");
 
 // ══════════════════════════════════════════
 //        MÓDULOS EXTRAÍDOS
 // ══════════════════════════════════════════
 
-const { executeGemini, executeGroq, executeOpenRouter, executeOllama, callProvider } = require("./lib/providers");
+const { executeGemini, executeGroq, executeOpenRouter, executeOllama } = require("./lib/providers");
 const { getMemory, saveMemory, summarizeIfNeeded, MEMORY_DIR } = require("./lib/memory");
 const { loadedSkills, groqTools, convertToolToGemini } = require("./lib/skills-loader");
+const { isSpam } = require("./lib/anti-spam");
 
 // ══════════════════════════════════════════
 //        ARQUITETURA MODULAR
 // ══════════════════════════════════════════
 
 // Diretórios
-const LEARNINGS_DIR = path.join(__dirname, "learnings");
-if (!fs.existsSync(LEARNINGS_DIR)) fs.mkdirSync(LEARNINGS_DIR);
 
 // Arquivos core
 const SYSTEM_FILE = path.join(__dirname, "SYSTEM.md");
 const AUTORIZADOS_FILE = path.join(__dirname, "autorizados.json");
-const NOTAS_FILE = path.join(__dirname, "notas.json");
 const SETTINGS_FILE = path.join(__dirname, "settings.json");
 
 // Carregar settings
@@ -162,7 +158,6 @@ async function callAI(chatId, pushname, input, isOwner) {
 // ══════════════════════════════════════════
 
 const pendingMessages = new Map();
-const recentSentTexts = new Set();
 
 module.exports = sansekai = async (sock, message) => {
     try {
@@ -174,6 +169,9 @@ module.exports = sansekai = async (sock, message) => {
         const sender = (message.sender || "").split('@')[0];
         const pushname = message.pushName || "Usuário";
         const isOwner = ["559491855060", "5594991855060", "236949688311960", "101679106150440"].includes(sender) || message.key.fromMe;
+
+        // Anti-spam
+        if (!isOwner && isSpam(sender)) return;
 
         // Log visual no terminal
         const shortText = budy.length > 60 ? budy.substring(0, 60) + "..." : budy;
