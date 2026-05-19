@@ -1,4 +1,4 @@
-# 🐺 LOGAN AI — Bot WhatsApp
+# 🤖 SARAH IA — Bot WhatsApp
 
 Bot inteligente para WhatsApp usando Baileys + Suporte Multi-API (Gemini, Groq, OpenRouter & Ollama).
 Arquitetura modular com memória inteligente, anti-spam, debounce e suporte a ferramentas (skills).
